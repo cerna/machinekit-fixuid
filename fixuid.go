@@ -4,11 +4,9 @@ import (
 	"bufio"
 	"errors"
 	"flag"
-	"fmt"
 	"io/ioutil"
 	"log"
 	"os"
-	"os/exec"
 	"path"
 	"path/filepath"
 	"runtime"
@@ -26,13 +24,9 @@ var quietFlag = flag.Bool("q", false, "quiet mode")
 
 func main() {
 	runtime.GOMAXPROCS(1)
-	logger.SetPrefix("fixuid: ")
+	logger.SetPrefix("Machinekit Fixuid: ")
 	flag.Parse()
 
-	// development warning
-	logInfo("fixuid should only ever be used on development systems. DO NOT USE IN PRODUCTION")
-
-	argsWithoutProg := flag.Args()
 	// detect what user we are running as
 	runtimeUIDInt := os.Getuid()
 	runtimeUID := strconv.Itoa(runtimeUIDInt)
@@ -42,7 +36,7 @@ func main() {
 	// only run once on the system
 	if _, err := os.Stat(ranFile); !os.IsNotExist(err) {
 		logInfo("already ran on this system; will not attempt to change UID/GID")
-		exitOrExec(runtimeUIDInt, runtimeGIDInt, argsWithoutProg)
+		os.Exit(1)
 	}
 
 	// check that script is running as root
@@ -258,55 +252,14 @@ func main() {
 		logger.Fatalln(err)
 	}
 
-	// if the existing HOME directory is "/", change it to the user's home directory
-	existingHomeDir := os.Getenv("HOME")
-	if existingHomeDir == "/" {
-		homeDir, homeDirErr := findHomeDir(runtimeUID)
-		if homeDirErr == nil && homeDir != "" && homeDir != "/" {
-			if len(argsWithoutProg) > 0 {
-				os.Setenv("HOME", homeDir)
-			} else {
-				fmt.Println(`export HOME="` + strings.Replace(homeDir, `"`, `\"`, -1) + `"`)
-			}
-		}
-	}
-
 	// all done
-	exitOrExec(runtimeUIDInt, runtimeGIDInt, argsWithoutProg)
+	os.Exit(0)
 }
 
 func logInfo(v ...interface{}) {
 	if !*quietFlag {
 		logger.Println(v...)
 	}
-}
-
-func exitOrExec(runtimeUIDInt int, runtimeGIDInt int, argsWithoutProg []string) {
-	if len(argsWithoutProg) > 0 {
-		// exec mode - de-escalate privileges and exec new process
-		binary, err := exec.LookPath(argsWithoutProg[0])
-		if err != nil {
-			logger.Fatalln(err)
-		}
-
-		// de-escalate the user back to the original
-		if err := syscall.Setreuid(runtimeUIDInt, runtimeUIDInt); err != nil {
-			logger.Fatalln(err)
-		}
-		// de-escalate the group back to the original
-		if err := syscall.Setregid(runtimeGIDInt, runtimeGIDInt); err != nil {
-			logger.Fatalln(err)
-		}
-
-		// exec new process
-		env := os.Environ()
-		if err := syscall.Exec(binary, argsWithoutProg, env); err != nil {
-			logger.Fatalln(err)
-		}
-	}
-
-	// nothing to exec; exit the program
-	os.Exit(0)
 }
 
 func searchColonDelimetedFile(filePath string, search string, searchOffset int, returnOffset int) (string, error) {
